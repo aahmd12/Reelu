@@ -78,8 +78,6 @@ flutter run -d windows
 
 ```
 
-< align="center">
-
 ## 👥 Tim Pengembang (Development Team)
 
 *Kelompok I*
