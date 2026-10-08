@@ -82,10 +82,9 @@ flutter run -d windows
 
 ## 👥 Tim Pengembang (Development Team)
 
+*Kelompok I*
 | No | Nama Anggota | NPM |
 | :-: | :-: | :-: |
 | **1** | **Ahmad Thamrin Assya'bani** | `202343501469` |
 | **2** | **Irsyad Dhiya Ramadhan** | `202343501482` |
 | **3** | **Ahmad Zaen Purwanto** | `202343501485` |
-
-*Kelompok I*
