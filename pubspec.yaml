@@ -1,0 +1,39 @@
+name: Reelu
+description: Aplikasi prediksi kelulusan mahasiswa berdasarkan data akademik.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  firebase_core: ^3.0.0
+  firebase_auth: ^5.0.0
+
+  supabase_flutter: ^2.8.0
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  cloud_firestore: ^5.6.12
+  mailer: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/Reelu1.0.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/Reelu1.0.png"
