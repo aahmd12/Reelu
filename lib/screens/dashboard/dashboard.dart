@@ -1,5 +1,5 @@
-import 'dart:async';
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -25,7 +25,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
 
   String _userName = 'Mahasiswa';
@@ -46,10 +47,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _hasPrediction = false;
 
+  RealtimeChannel? _academicChannel;
+  RealtimeChannel? _profileChannel;
   RealtimeChannel? _predictionChannel;
+
   Timer? _predictionTimer;
+  Timer? _academicReloadTimer;
 
   String? _lastPredictionId;
+
+  bool _isDashboardDataLoading = false;
+  bool _dashboardReloadPending = false;
 
   static const Color _primaryColor = Color(0xFF2563EB);
   static const Color _darkBlue = Color(0xFF102A63);
@@ -62,43 +70,154 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+
     _loadDashboardData();
+
+    _listenToAcademicChanges();
+    _listenToProfileChanges();
     _listenToPredictionChanges();
+
     _startPredictionChecker();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
     _predictionTimer?.cancel();
+    _academicReloadTimer?.cancel();
+
+    if (_academicChannel != null) {
+      Supabase.instance.client.removeChannel(_academicChannel!);
+    }
+
+    if (_profileChannel != null) {
+      Supabase.instance.client.removeChannel(_profileChannel!);
+    }
 
     if (_predictionChannel != null) {
-      Supabase.instance.client.removeChannel(
-        _predictionChannel!,
-      );
+      Supabase.instance.client.removeChannel(_predictionChannel!);
     }
 
     super.dispose();
   }
 
-  Future<void> _loadDashboardData() async {
-    if (!mounted) {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _scheduleAcademicReload();
+      _loadLatestPrediction();
+    }
+  }
+
+  void _listenToAcademicChanges() {
+    final user = _authService.currentUser;
+
+    if (user == null) return;
+
+    _academicChannel = Supabase.instance.client
+        .channel('dashboard-academic-${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'academic_records',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            _scheduleAcademicReload();
+          },
+        )
+        .subscribe((status, error) {
+          debugPrint('ACADEMIC REALTIME STATUS: $status');
+
+          if (error != null) {
+            debugPrint('ACADEMIC REALTIME ERROR: $error');
+          }
+        });
+  }
+
+  void _listenToProfileChanges() {
+    final user = _authService.currentUser;
+
+    if (user == null) return;
+
+    _profileChannel = Supabase.instance.client
+        .channel('dashboard-profile-${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'profiles',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            _scheduleAcademicReload();
+          },
+        )
+        .subscribe((status, error) {
+          debugPrint('PROFILE REALTIME STATUS: $status');
+
+          if (error != null) {
+            debugPrint('PROFILE REALTIME ERROR: $error');
+          }
+        });
+  }
+
+  void _scheduleAcademicReload() {
+    if (!mounted) return;
+
+    _academicReloadTimer?.cancel();
+
+    _academicReloadTimer = Timer(
+      const Duration(milliseconds: 400),
+      () {
+        if (!mounted) return;
+
+        _loadDashboardData(showLoading: false);
+      },
+    );
+  }
+
+  Future<void> _loadDashboardData({
+    bool showLoading = true,
+  }) async {
+    if (!mounted) return;
+
+    if (_isDashboardDataLoading) {
+      _dashboardReloadPending = true;
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    _isDashboardDataLoading = true;
+
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       final user = _authService.currentUser;
 
       if (user == null) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
 
         setState(() {
           _isLoading = false;
+          _ipk = null;
+          _ips = null;
+          _sks = null;
+          _targetSks = null;
+          _semester = null;
+          _kehadiran = null;
         });
 
         return;
@@ -165,56 +284,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final semesterValue = academicResponse['semester'];
 
         if (ipkValue != null) {
-          ipk = double.tryParse(
-            ipkValue.toString(),
-          );
+          ipk = double.tryParse(ipkValue.toString());
         }
 
         if (ipsValue != null) {
-          ips = double.tryParse(
-            ipsValue.toString(),
-          );
+          ips = double.tryParse(ipsValue.toString());
         }
 
         if (sksValue != null) {
-          sks = int.tryParse(
-            sksValue.toString(),
-          );
+          sks = int.tryParse(sksValue.toString());
         }
 
         if (targetSksValue != null) {
-          targetSks = int.tryParse(
-            targetSksValue.toString(),
-          );
+          targetSks = int.tryParse(targetSksValue.toString());
         }
 
         if (semesterValue != null) {
-          semester = int.tryParse(
-            semesterValue.toString(),
-          );
+          semester = int.tryParse(semesterValue.toString());
         }
       }
 
       double? kehadiran;
 
-      final metadata = user.userMetadata ?? {};
-      final metadataKehadiran = metadata['kehadiran'];
+      final kehadiranValue = academicResponse?['kehadiran'];
 
-      if (metadataKehadiran != null) {
-        kehadiran = double.tryParse(
-          metadataKehadiran.toString(),
-        );
+      if (kehadiranValue != null) {
+        kehadiran = double.tryParse(kehadiranValue.toString());
+      }
+
+      if (kehadiran == null) {
+        final metadata = user.userMetadata ?? {};
+        final metadataKehadiran = metadata['kehadiran'];
+
+        if (metadataKehadiran != null) {
+          kehadiran = double.tryParse(
+            metadataKehadiran.toString(),
+          );
+        }
       }
 
       if (mounted) {
         setState(() {
-          _userName = firstName.isEmpty
-              ? 'Mahasiswa'
-              : firstName;
-
-          _initial = _userName
-              .substring(0, 1)
-              .toUpperCase();
+          _userName = firstName.isEmpty ? 'Mahasiswa' : firstName;
+          _initial = _userName.substring(0, 1).toUpperCase();
 
           _ipk = ipk;
           _ips = ips;
@@ -228,13 +340,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       await _loadLatestPrediction();
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
+      debugPrint('DASHBOARD ERROR: $e');
+
+      if (!mounted) return;
 
       setState(() {
         _isLoading = false;
       });
+    } finally {
+      _isDashboardDataLoading = false;
+
+      if (mounted && _dashboardReloadPending) {
+        _dashboardReloadPending = false;
+
+        unawaited(
+          _loadDashboardData(showLoading: false),
+        );
+      }
     }
   }
 
@@ -242,9 +364,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final user = _authService.currentUser;
 
-      if (user == null) {
-        return;
-      }
+      if (user == null) return;
 
       final response = await Supabase.instance.client
           .from('predictions')
@@ -255,9 +375,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .maybeSingle();
 
       if (response == null) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
 
         setState(() {
           _hasPrediction = false;
@@ -286,14 +404,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       DateTime? createdDate;
 
       if (createdAt != null) {
-        createdDate = DateTime.tryParse(
-          createdAt,
-        );
+        createdDate = DateTime.tryParse(createdAt);
       }
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _hasPrediction = true;
@@ -303,9 +417,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _lastPredictionId = predictionId;
       });
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
+      debugPrint('PREDICTION ERROR: $e');
+
+      if (!mounted) return;
 
       setState(() {
         _hasPrediction = false;
@@ -317,9 +431,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final user = _authService.currentUser;
 
-      if (user == null) {
-        return;
-      }
+      if (user == null) return;
 
       final response = await Supabase.instance.client
           .from('predictions')
@@ -331,26 +443,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final predictionId = response?['id']?.toString();
 
-      if (predictionId != null &&
-          predictionId != _lastPredictionId) {
+      if (predictionId != _lastPredictionId) {
         await _loadLatestPrediction();
       }
     } catch (e) {
-      return;
+      debugPrint('PREDICTION CHECK ERROR: $e');
     }
   }
 
   void _listenToPredictionChanges() {
     final user = _authService.currentUser;
 
-    if (user == null) {
-      return;
-    }
+    if (user == null) return;
 
     _predictionChannel = Supabase.instance.client
-        .channel(
-          'dashboard-predictions-${user.id}',
-        )
+        .channel('dashboard-predictions-${user.id}')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -361,10 +468,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             value: user.id,
           ),
           callback: (payload) {
+            if (!mounted) return;
             _loadLatestPrediction();
           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          debugPrint('PREDICTION REALTIME STATUS: $status');
+
+          if (error != null) {
+            debugPrint('PREDICTION REALTIME ERROR: $error');
+          }
+        });
   }
 
   void _startPredictionChecker() {
@@ -377,10 +491,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _refreshPredictionAfterNavigation() async {
-    await Future.delayed(
-      const Duration(milliseconds: 500),
-    );
-
+    await Future.delayed(const Duration(milliseconds: 500));
     await _loadLatestPrediction();
   }
 
@@ -388,19 +499,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     double? value, {
     int decimal = 2,
   }) {
-    if (value == null) {
-      return '-';
-    }
-
+    if (value == null) return '-';
     return value.toStringAsFixed(decimal);
   }
 
-  String _formatPredictionPercentage(
-    double? value,
-  ) {
-    if (value == null) {
-      return '-';
-    }
+  String _formatPredictionPercentage(double? value) {
+    if (value == null) return '-';
 
     double percentage = value;
 
@@ -411,67 +515,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '${percentage.toStringAsFixed(1)}%';
   }
 
-  String _formatPredictionDate(
-    DateTime? date,
-  ) {
-    if (date == null) {
-      return '-';
-    }
+  String _formatPredictionDate(DateTime? date) {
+    if (date == null) return '-';
 
     final localDate = date.toLocal();
 
-    final day = localDate.day
-        .toString()
-        .padLeft(2, '0');
-
-    final month = localDate.month
-        .toString()
-        .padLeft(2, '0');
-
+    final day = localDate.day.toString().padLeft(2, '0');
+    final month = localDate.month.toString().padLeft(2, '0');
     final year = localDate.year.toString();
 
-    final hour = localDate.hour
-        .toString()
-        .padLeft(2, '0');
-
-    final minute = localDate.minute
-        .toString()
-        .padLeft(2, '0');
+    final hour = localDate.hour.toString().padLeft(2, '0');
+    final minute = localDate.minute.toString().padLeft(2, '0');
 
     return '$day/$month/$year • $hour:$minute';
   }
 
   double _getProgressPercentage() {
-    if (_sks == null ||
-        _targetSks == null ||
-        _targetSks == 0) {
+    if (_sks == null || _targetSks == null || _targetSks == 0) {
       return 0;
     }
 
     final percentage = _sks! / _targetSks!;
 
-    if (percentage < 0) {
-      return 0;
-    }
-
-    if (percentage > 1) {
-      return 1;
-    }
+    if (percentage < 0) return 0;
+    if (percentage > 1) return 1;
 
     return percentage;
   }
 
   int? _getRemainingSks() {
-    if (_sks == null ||
-        _targetSks == null) {
-      return null;
-    }
+    if (_sks == null || _targetSks == null) return null;
 
     final remaining = _targetSks! - _sks!;
 
-    return remaining < 0
-        ? 0
-        : remaining;
+    return remaining < 0 ? 0 : remaining;
   }
 
   bool _hasAcademicData() {
@@ -486,19 +563,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _openPrediction() async {
     if (widget.onNavigateTab != null) {
       widget.onNavigateTab!(1);
-
       await _refreshPredictionAfterNavigation();
-
       return;
     }
 
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const PredictionScreen(),
+        builder: (context) => const PredictionScreen(),
       ),
     );
+
+    if (!mounted) return;
 
     await _loadLatestPrediction();
   }
@@ -507,10 +583,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const HistoryScreen(),
+        builder: (context) => const HistoryScreen(),
       ),
     );
+
+    if (!mounted) return;
 
     await _loadLatestPrediction();
   }
@@ -524,56 +601,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const StatistikScreen(),
+        builder: (context) => const StatistikScreen(),
       ),
     );
+
+    if (!mounted) return;
 
     await _loadDashboardData();
   }
 
-  Future<void> _openTarget() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const TargetScreen(),
-      ),
-    );
-
-    if (!mounted) {
+  void _openTarget() {
+    if (widget.onNavigateTab != null) {
+      widget.onNavigateTab!(3);
       return;
     }
 
-    await _loadDashboardData();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const TargetScreen(),
+      ),
+    );
   }
 
   Future<void> _openRecommendation() async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const RekomendasiScreen(),
+        builder: (context) => const RekomendasiScreen(),
       ),
     );
 
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     await _loadDashboardData();
   }
 
   @override
   Widget build(BuildContext context) {
-    final baseTextTheme =
-        Theme.of(context).textTheme;
+    final baseTextTheme = Theme.of(context).textTheme;
 
     return Theme(
       data: Theme.of(context).copyWith(
-        textTheme: GoogleFonts.poppinsTextTheme(
-          baseTextTheme,
-        ),
+        textTheme: GoogleFonts.poppinsTextTheme(baseTextTheme),
       ),
       child: Scaffold(
         backgroundColor: _backgroundColor,
@@ -586,26 +655,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : SafeArea(
                 child: RefreshIndicator(
                   color: _primaryColor,
-                  onRefresh: _loadDashboardData,
+                  onRefresh: () => _loadDashboardData(),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints:
-                          const BoxConstraints(
-                        maxWidth: 430,
-                      ),
+                      constraints: const BoxConstraints(maxWidth: 430),
                       child: SingleChildScrollView(
-                        physics:
-                            const AlwaysScrollableScrollPhysics(),
-                        padding:
-                            const EdgeInsets.fromLTRB(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
                           16.0,
                           12.0,
                           16.0,
                           65.0,
                         ),
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _buildHeader(),
                             const SizedBox(height: 20),
@@ -617,8 +680,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               'Aksi Cepat',
                               style: TextStyle(
                                 fontSize: 21,
-                                fontWeight:
-                                    FontWeight.w700,
+                                fontWeight: FontWeight.w700,
                                 color: _darkBlue,
                               ),
                             ),
@@ -642,8 +704,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 'Selamat datang,',
@@ -675,8 +736,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color:
-                    _primaryColor.withOpacity(0.20),
+                color: _primaryColor.withOpacity(0.20),
                 blurRadius: 12,
                 offset: const Offset(0, 5),
               ),
@@ -705,21 +765,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _borderColor,
-        ),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color:
-                const Color(0xFF8AA9D6).withOpacity(0.07),
+            color: const Color(0xFF8AA9D6).withOpacity(0.07),
             blurRadius: 18,
             offset: const Offset(0, 7),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -734,8 +790,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
                 ),
@@ -743,13 +798,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: hasData
                       ? const Color(0xFFEAF8EF)
                       : const Color(0xFFFFF4E5),
-                  borderRadius:
-                      BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  hasData
-                      ? 'Data Tersedia'
-                      : 'Belum Ada Data',
+                  hasData ? 'Data Tersedia' : 'Belum Ada Data',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -794,22 +846,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: _buildSummaryItem(
                   icon: Icons.menu_book_outlined,
                   label: 'Semester',
-                  value:
-                      _semester?.toString() ?? '-',
+                  value: _semester?.toString() ?? '-',
                 ),
               ),
               Expanded(
                 child: _buildSummaryItem(
                   icon: Icons.fact_check_outlined,
                   label: 'Target SKS',
-                  value:
-                      _targetSks?.toString() ?? '-',
+                  value: _targetSks?.toString() ?? '-',
                 ),
               ),
               Expanded(
                 child: _buildSummaryItem(
-                  icon:
-                      Icons.event_available_outlined,
+                  icon: Icons.event_available_outlined,
                   label: 'Kehadiran',
                   value: _kehadiran == null
                       ? '-'
@@ -835,8 +884,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 38,
           decoration: BoxDecoration(
             color: const Color(0xFFEAF3FF),
-            borderRadius:
-                BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(12),
           ),
           alignment: Alignment.center,
           child: Icon(
@@ -881,13 +929,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _borderColor,
-          ),
+          border: Border.all(color: _borderColor),
         ),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
               'Prediksi Kelulusan Terakhir',
@@ -905,8 +950,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   height: 42,
                   decoration: BoxDecoration(
                     color: const Color(0xFFEAF3FF),
-                    borderRadius:
-                        BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.analytics_outlined,
@@ -937,8 +981,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: const Text(
@@ -956,9 +999,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final bool isLulus =
-        (_statusPrediksi ?? '')
-            .toLowerCase()
-            .contains('lulus');
+        (_statusPrediksi ?? '').toLowerCase().contains('lulus');
 
     return Container(
       width: double.infinity,
@@ -966,21 +1007,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _borderColor,
-        ),
+        border: Border.all(color: _borderColor),
         boxShadow: [
           BoxShadow(
-            color:
-                const Color(0xFF8AA9D6).withOpacity(0.06),
+            color: const Color(0xFF8AA9D6).withOpacity(0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -995,8 +1032,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
                 ),
@@ -1004,8 +1040,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: isLulus
                       ? const Color(0xFFEAF8EF)
                       : const Color(0xFFFFF4E5),
-                  borderRadius:
-                      BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   _statusPrediksi ?? '-',
@@ -1030,8 +1065,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: isLulus
                       ? const Color(0xFFEAF8EF)
                       : const Color(0xFFFFF4E5),
-                  borderRadius:
-                      BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
@@ -1047,13 +1081,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _formatPredictionPercentage(
-                        _probabilitas,
-                      ),
+                      _formatPredictionPercentage(_probabilitas),
                       style: const TextStyle(
                         fontSize: 21,
                         fontWeight: FontWeight.w700,
@@ -1064,9 +1095,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Text(
                       _tanggalPrediksi == null
                           ? '-'
-                          : _formatPredictionDate(
-                              _tanggalPrediksi,
-                            ),
+                          : _formatPredictionDate(_tanggalPrediksi),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -1087,21 +1116,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) =>
-                        const ViewDetailsScreen(),
+                    builder: (context) => const ViewDetailsScreen(),
                   ),
                 );
+
+                if (!mounted) return;
 
                 await _loadLatestPrediction();
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: _primaryColor,
-                side: const BorderSide(
-                  color: _primaryColor,
-                ),
+                side: const BorderSide(color: _primaryColor),
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: const Text(
@@ -1122,8 +1149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
-      physics:
-          const NeverScrollableScrollPhysics(),
+      physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
       childAspectRatio: 1.45,
@@ -1142,10 +1168,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.school_outlined,
           title: 'Data Akademik',
           onTap: () async {
-            await Navigator.pushNamed(
-              context,
-              '/data-academic',
-            );
+            await Navigator.pushNamed(context, '/data-academic');
+
+            if (!mounted) return;
 
             await _loadDashboardData();
           },
@@ -1183,23 +1208,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            borderRadius:
-                BorderRadius.circular(16),
-            border: Border.all(
-              color: _softBorderColor,
-            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _softBorderColor),
           ),
           child: Column(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
                   color: const Color(0xFFEAF3FF),
-                  borderRadius:
-                      BorderRadius.circular(13),
+                  borderRadius: BorderRadius.circular(13),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
@@ -1229,18 +1249,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildAcademicProgress() {
-    final progressPercentage =
-        _getProgressPercentage();
-
-    final remainingSks =
-        _getRemainingSks();
+    final progressPercentage = _getProgressPercentage();
+    final remainingSks = _getRemainingSks();
 
     final progressValue =
-        (progressPercentage * 100)
-            .toStringAsFixed(0);
+        (progressPercentage * 100).toStringAsFixed(0);
 
-    final sksDisplay =
-        '${_sks ?? '-'} | ${_targetSks ?? '-'} SKS';
+    final sksDisplay = '${_sks ?? '-'} | ${_targetSks ?? '-'} SKS';
 
     return Container(
       width: double.infinity,
@@ -1248,17 +1263,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: _softBorderColor,
-        ),
+        border: Border.all(color: _softBorderColor),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Expanded(
                 child: Text(
@@ -1271,9 +1282,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(
-                _hasAcademicData()
-                    ? '$progressValue%'
-                    : '-',
+                _hasAcademicData() ? '$progressValue%' : '-',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
@@ -1293,15 +1302,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius:
-                BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
               value: progressPercentage,
               minHeight: 8,
-              backgroundColor:
-                  const Color(0xFFEAF0F6),
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(
+              backgroundColor: const Color(0xFFEAF0F6),
+              valueColor: const AlwaysStoppedAnimation<Color>(
                 _primaryColor,
               ),
             ),
@@ -1309,26 +1315,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 12),
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(
+            padding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 10,
             ),
             decoration: BoxDecoration(
               color: const Color(0xFFF7FAFD),
-              borderRadius:
-                  BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
                 Icon(
-                  remainingSks != null &&
-                          remainingSks <= 0
+                  remainingSks != null && remainingSks <= 0
                       ? Icons.check_circle_outline_rounded
                       : Icons.info_outline_rounded,
                   size: 18,
-                  color: remainingSks != null &&
-                          remainingSks <= 0
+                  color: remainingSks != null && remainingSks <= 0
                       ? Colors.green
                       : const Color(0xFF6D8ABD),
                 ),
@@ -1337,8 +1339,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Text(
                     !_hasAcademicData()
                         ? 'Belum ada data untuk ditampilkan.'
-                        : remainingSks != null &&
-                                remainingSks > 0
+                        : remainingSks != null && remainingSks > 0
                             ? '$remainingSks SKS tersisa untuk menyelesaikan studi.'
                             : 'Target SKS untuk menyelesaikan studi sudah tercapai.',
                     style: TextStyle(
@@ -1367,16 +1368,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   '/data-academic',
                 );
 
+                if (!mounted) return;
+
                 await _loadDashboardData();
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: _primaryColor,
-                side: const BorderSide(
-                  color: _primaryColor,
-                ),
+                side: const BorderSide(color: _primaryColor),
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: const Text(

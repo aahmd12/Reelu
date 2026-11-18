@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import 'screens/dashboard/dashboard.dart';
@@ -23,19 +24,13 @@ class _BottomNavigationState extends State<BottomNavigation> {
   late final List<Widget> _pages;
 
   static const Color _backgroundColor = Color(0xFFF6FAFF);
-
   static const Color _primaryColor = Color(0xFF2563EB);
-
   static const Color _inactiveColor = Color(0xFF8298BB);
-
   static const Color _activeBackgroundColor = Color(0xFFEAF3FF);
 
   static const double _navigationHeight = 76;
-
   static const double _navigationHorizontalMargin = 12;
-
   static const double _navigationBottomMargin = 16;
-
   static const double _contentBottomSpace = 108;
 
   @override
@@ -48,19 +43,17 @@ class _BottomNavigationState extends State<BottomNavigation> {
       ),
       const PredictionScreen(),
       const StatistikScreen(),
-      const TargetScreen(),
+      TargetScreen(
+        onBack: () => _onNavigateTab(0),
+      ),
       ProfileScreen(),
     ];
   }
 
   void _onNavigateTab(int index) {
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
-    if (index < 0 || index >= _pages.length) {
-      return;
-    }
+    if (index < 0 || index >= _pages.length) return;
 
     setState(() {
       _currentIndex = index;
@@ -92,7 +85,6 @@ class _BottomNavigationState extends State<BottomNavigation> {
                     ),
                   ),
                 ),
-
                 Positioned(
                   left: _navigationHorizontalMargin,
                   right: _navigationHorizontalMargin,
@@ -137,28 +129,24 @@ class _BottomNavigationState extends State<BottomNavigation> {
                 activeIcon: Icons.home_rounded,
                 label: 'Beranda',
               ),
-
               _buildNavItem(
                 index: 1,
                 icon: Icons.trending_up_outlined,
                 activeIcon: Icons.trending_up_rounded,
                 label: 'Prediksi',
               ),
-
               _buildNavItem(
                 index: 2,
                 icon: Icons.bar_chart_outlined,
                 activeIcon: Icons.bar_chart_rounded,
                 label: 'Statistik',
               ),
-
               _buildNavItem(
                 index: 3,
                 icon: Icons.track_changes_outlined,
                 activeIcon: Icons.track_changes_rounded,
                 label: 'Target',
               ),
-
               _buildNavItem(
                 index: 4,
                 icon: Icons.person_outline_rounded,
@@ -212,9 +200,7 @@ class _BottomNavigationState extends State<BottomNavigation> {
                         : _inactiveColor,
                   ),
                 ),
-
                 const SizedBox(height: 2),
-
                 Text(
                   label,
                   maxLines: 1,

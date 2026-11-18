@@ -25,8 +25,12 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
   late final TextEditingController _ipsController;
   late final TextEditingController _totalSksController;
   late final TextEditingController _targetSksController;
+  late final TextEditingController _kehadiranController;
 
   bool _isLoading = false;
+  bool _isInitializing = true;
+
+  Map<String, dynamic>? _existingRecord;
 
   final Color _primaryColor = const Color(0xFF2563EB);
   final Color _darkBlue = const Color(0xFF102A63);
@@ -34,43 +38,133 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
   final Color _backgroundColor = const Color(0xFFF6FAFF);
   final Color _borderColor = const Color(0xFFDCEBFC);
 
+  SupabaseClient get _supabase => Supabase.instance.client;
+
   @override
   void initState() {
     super.initState();
 
     _semesterController = TextEditingController(
-      text: widget.existingData?['semester']?.toString() ??
-          widget.semester?.toString() ??
+      text: widget.semester?.toString() ??
+          widget.existingData?['semester']?.toString() ??
           '',
     );
 
-    _ipkController = TextEditingController(
-      text: _formatInitialValue(widget.existingData?['ipk']),
-    );
+    _ipkController = TextEditingController();
+    _ipsController = TextEditingController();
+    _totalSksController = TextEditingController();
+    _targetSksController = TextEditingController();
+    _kehadiranController = TextEditingController();
 
-    _ipsController = TextEditingController(
-      text: _formatInitialValue(widget.existingData?['ips']),
-    );
-
-    _totalSksController = TextEditingController(
-      text: widget.existingData?['total_sks']?.toString() ?? '',
-    );
-
-    _targetSksController = TextEditingController(
-      text: widget.existingData?['target_sks']?.toString() ?? '',
-    );
+    _loadExistingData();
   }
 
   String _formatInitialValue(dynamic value) {
-    if (value == null) {
-      return '';
-    }
+    if (value == null) return '';
 
     if (value is num) {
       return value.toStringAsFixed(2);
     }
 
     return value.toString();
+  }
+
+  void _clearForm() {
+    _ipkController.clear();
+    _ipsController.clear();
+    _totalSksController.clear();
+    _targetSksController.clear();
+    _kehadiranController.clear();
+    _existingRecord = null;
+  }
+
+  Future<void> _loadExistingData() async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      if (!mounted) return;
+
+      setState(() {
+        _clearForm();
+        _isInitializing = false;
+      });
+      return;
+    }
+
+    try {
+      final int? selectedSemester = int.tryParse(
+        _semesterController.text.trim(),
+      );
+
+      Map<String, dynamic>? record;
+
+      if (selectedSemester != null) {
+        final response = await _supabase
+            .from('academic_records')
+            .select(
+              'id, user_id, semester, ips, ipk, total_sks, target_sks, kehadiran, created_at',
+            )
+            .eq('user_id', user.id)
+            .eq('semester', selectedSemester)
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        record = response;
+      } else {
+        final existingId = widget.existingData?['id'];
+
+        if (existingId != null) {
+          record = await _supabase
+              .from('academic_records')
+              .select(
+                'id, user_id, semester, ips, ipk, total_sks, target_sks, kehadiran, created_at',
+              )
+              .eq('id', existingId)
+              .eq('user_id', user.id)
+              .maybeSingle();
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        if (record == null) {
+          // Jika data sudah dihapus, seluruh kolom harus kosong.
+          _clearForm();
+        } else {
+          _existingRecord = record;
+
+          _ipkController.text = _formatInitialValue(record['ipk']);
+          _ipsController.text = _formatInitialValue(record['ips']);
+
+          _totalSksController.text =
+              record['total_sks']?.toString() ?? '';
+
+          _targetSksController.text =
+              record['target_sks']?.toString() ?? '';
+
+          _kehadiranController.text =
+              _formatInitialValue(record['kehadiran']);
+
+          _semesterController.text =
+              record['semester']?.toString() ?? '';
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        _showMessage(
+          'Gagal mengambil data statistik: $e',
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+    }
   }
 
   @override
@@ -80,15 +174,41 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
     _ipsController.dispose();
     _totalSksController.dispose();
     _targetSksController.dispose();
+    _kehadiranController.dispose();
+
     super.dispose();
   }
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          backgroundColor:
+              isError ? const Color(0xFFDC2626) : const Color(0xFF16A765),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+  }
 
   Future<void> _saveData() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     final user = _supabase.auth.currentUser;
 
@@ -120,11 +240,16 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
       _targetSksController.text.trim(),
     );
 
+    final double? kehadiran = double.tryParse(
+      _kehadiranController.text.trim().replaceAll(',', '.'),
+    );
+
     if (semester == null ||
         ipk == null ||
         ips == null ||
         totalSks == null ||
-        targetSks == null) {
+        targetSks == null ||
+        kehadiran == null) {
       _showMessage(
         'Pastikan semua data diisi dengan benar.',
         isError: true,
@@ -132,17 +257,9 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
       return;
     }
 
-    if (semester < 1) {
+    if (semester < 1 || semester > 20) {
       _showMessage(
-        'Semester harus dimulai dari semester 1.',
-        isError: true,
-      );
-      return;
-    }
-
-    if (semester > 20) {
-      _showMessage(
-        'Semester tidak boleh lebih dari 20.',
+        'Semester harus berada di antara 1 sampai 20.',
         isError: true,
       );
       return;
@@ -188,13 +305,19 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
       return;
     }
 
+    if (kehadiran < 0 || kehadiran > 100) {
+      _showMessage(
+        'Kehadiran harus berada di antara 0 sampai 100%.',
+        isError: true,
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final existingId = widget.existingData?['id'];
-
       final data = {
         'user_id': user.id,
         'semester': semester,
@@ -202,86 +325,45 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
         'ipk': ipk,
         'total_sks': totalSks,
         'target_sks': targetSks,
+        'kehadiran': kehadiran,
       };
 
-      if (existingId != null && existingId.toString().isNotEmpty) {
+      // Ambil satu record terbaru untuk semester yang dipilih.
+      final existingRecord = await _supabase
+          .from('academic_records')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('semester', semester)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (existingRecord != null && existingRecord['id'] != null) {
+        // Perbarui record terbaru jika masih tersedia.
         await _supabase
             .from('academic_records')
             .update(data)
-            .eq('id', existingId)
+            .eq('id', existingRecord['id'])
             .eq('user_id', user.id);
       } else {
-        final existingRecord = await _supabase
+        // Jika record sudah tidak ada, buat record baru.
+        await _supabase
             .from('academic_records')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('semester', semester)
-            .maybeSingle();
-
-        if (existingRecord != null &&
-            existingRecord['id'] != null) {
-          await _supabase
-              .from('academic_records')
-              .update(data)
-              .eq('id', existingRecord['id'])
-              .eq('user_id', user.id);
-        } else {
-          await _supabase
-              .from('academic_records')
-              .insert(data);
-        }
+            .insert(data);
       }
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Data statistik berhasil disimpan.',
-          ),
-          backgroundColor: Colors.green.shade600,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            80,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
+      _showMessage('Data statistik berhasil disimpan.');
 
-      await Future.delayed(
-        const Duration(milliseconds: 500),
-      );
+      await Future.delayed(const Duration(milliseconds: 500));
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       Navigator.pop(context, true);
-    } on PostgrestException catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      _showMessage(
-        e.message.isNotEmpty
-            ? e.message
-            : 'Gagal menyimpan data statistik.',
-        isError: true,
-      );
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
       _showMessage(
-        'Terjadi kesalahan saat menyimpan data.',
+        'Gagal menyimpan data: $e',
         isError: true,
       );
     } finally {
@@ -293,251 +375,150 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
     }
   }
 
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor:
-            isError ? Colors.red.shade600 : Colors.green.shade600,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(
-          16,
-          0,
-          16,
-          80,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    );
-  }
-
-  String? _validateSemester(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Semester wajib diisi';
-    }
-
-    final semester = int.tryParse(value.trim());
-
-    if (semester == null) {
-      return 'Semester harus berupa angka';
-    }
-
-    if (semester < 1 || semester > 20) {
-      return 'Semester harus antara 1 sampai 20';
-    }
-
-    return null;
-  }
-
-  String? _validateIpk(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'IPK wajib diisi';
-    }
-
-    final ipk = double.tryParse(
-      value.trim().replaceAll(',', '.'),
-    );
-
-    if (ipk == null) {
-      return 'IPK harus berupa angka';
-    }
-
-    if (ipk < 0 || ipk > 4) {
-      return 'IPK harus antara 0.00 sampai 4.00';
-    }
-
-    return null;
-  }
-
-  String? _validateIps(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'IPS wajib diisi';
-    }
-
-    final ips = double.tryParse(
-      value.trim().replaceAll(',', '.'),
-    );
-
-    if (ips == null) {
-      return 'IPS harus berupa angka';
-    }
-
-    if (ips < 0 || ips > 4) {
-      return 'IPS harus antara 0.00 sampai 4.00';
-    }
-
-    return null;
-  }
-
-  String? _validateSks(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Total SKS wajib diisi';
-    }
-
-    final sks = int.tryParse(value.trim());
-
-    if (sks == null) {
-      return 'SKS harus berupa angka';
-    }
-
-    if (sks < 0) {
-      return 'SKS tidak boleh kurang dari 0';
-    }
-
-    return null;
-  }
-
-  String? _validateTargetSks(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Target SKS wajib diisi';
-    }
-
-    final sks = int.tryParse(value.trim());
-
-    if (sks == null) {
-      return 'Target SKS harus berupa angka';
-    }
-
-    if (sks <= 0) {
-      return 'Target SKS harus lebih dari 0';
-    }
-
-    return null;
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
+  InputDecoration _inputDecoration({
     required String label,
     required String hint,
     required IconData icon,
-    required String? Function(String?) validator,
-    TextInputType keyboardType = TextInputType.text,
-    bool enabled = true,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: _textColor,
-          ),
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      suffixText: label == 'Kehadiran' ? '%' : null,
+      prefixIcon: Icon(
+        icon,
+        color: _primaryColor,
+      ),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 17,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(
+          color: _primaryColor,
+          width: 1.5,
         ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          enabled: enabled,
-          keyboardType: keyboardType,
-          validator: validator,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: _textColor,
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-              color: Colors.grey.shade500,
-            ),
-            prefixIcon: Icon(
-              icon,
-              color: _primaryColor,
-              size: 21,
-            ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 15,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: _borderColor,
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: _borderColor,
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: _primaryColor,
-                width: 1.5,
-              ),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: Colors.red.shade300,
-              ),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: Colors.red.shade400,
-                width: 1.5,
-              ),
-            ),
-          ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(
+          color: Colors.red,
+          width: 1.5,
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildInfoCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFD6E8FF),
+  Widget _buildInputField({
+    required String label,
+    required String hint,
+    required IconData icon,
+    required TextEditingController controller,
+    required String? Function(String?) validator,
+    TextInputType keyboardType = TextInputType.number,
+    bool readOnly = false,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      readOnly: readOnly,
+      style: TextStyle(
+        color: _textColor,
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: _inputDecoration(
+        label: label,
+        hint: hint,
+        icon: icon,
+      ),
+      validator: validator,
+    );
+  }
+
+  Widget _buildNavigationHeader() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        'Data Statistik',
+        style: TextStyle(
+          color: _darkBlue,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final bool isEditing = _existingRecord != null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_primaryColor, _darkBlue],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(11),
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(15),
             ),
-            child: Icon(
-              Icons.info_outline_rounded,
-              color: _primaryColor,
-              size: 21,
+            child: const Icon(
+              Icons.school_rounded,
+              color: Colors.white,
+              size: 27,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              'Data yang kamu masukkan akan tersimpan berdasarkan semester dan digunakan untuk menampilkan perkembangan akademik pada Statistik Akademik.',
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.5,
-                color: _textColor,
-                fontWeight: FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isEditing
+                      ? 'Edit Data Statistik'
+                      : 'Lengkapi Data Statistik',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  isEditing
+                      ? 'Perbarui data akademik semester kamu.'
+                      : 'Masukkan data akademik setiap semester.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -545,111 +526,277 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
     );
   }
 
-  Widget _buildHeader() {
-    final isEdit = widget.existingData != null;
-
-    return Row(
+  Widget _buildSectionTitle(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        GestureDetector(
-          onTap: _isLoading
-              ? null
-              : () {
-                  Navigator.pop(context);
-                },
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _borderColor,
-              ),
-            ),
-            child: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              size: 18,
-              color: _darkBlue,
-            ),
+        Text(
+          title,
+          style: TextStyle(
+            color: _darkBlue,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isEdit
-                    ? 'Edit Statistik'
-                    : 'Input Statistik',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: _darkBlue,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                isEdit
-                    ? 'Perbarui data akademik semester ini'
-                    : 'Masukkan data akademik per semester',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
+        const SizedBox(height: 5),
+        Text(
+          subtitle,
+          style: TextStyle(
+            color: Colors.blueGrey.shade400,
+            fontSize: 12,
+            height: 1.4,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSaveButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _saveData,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _primaryColor,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: Colors.grey.shade300,
-          disabledForegroundColor: Colors.grey.shade600,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+  Widget _buildFormContent() {
+    final bool isEditing = _existingRecord != null;
+
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 26),
+
+          _buildSectionTitle(
+            'Informasi Semester',
+            'Tentukan semester dari data akademik yang ingin disimpan.',
           ),
-        ),
-        child: _isLoading
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    Colors.white,
-                  ),
+          const SizedBox(height: 14),
+
+          _buildInputField(
+            label: 'Semester',
+            hint: 'Contoh: 1',
+            icon: Icons.calendar_month_rounded,
+            controller: _semesterController,
+            readOnly: widget.semester != null ||
+                _existingRecord != null,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Semester wajib diisi.';
+              }
+
+              final semester = int.tryParse(value.trim());
+
+              if (semester == null ||
+                  semester < 1 ||
+                  semester > 20) {
+                return 'Masukkan semester antara 1 sampai 20.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 22),
+
+          _buildSectionTitle(
+            'Nilai Akademik',
+            'Masukkan nilai IPK dan IPS sesuai hasil akademik.',
+          ),
+          const SizedBox(height: 14),
+
+          _buildInputField(
+            label: 'IPK',
+            hint: 'Contoh: 3.75',
+            icon: Icons.school_rounded,
+            controller: _ipkController,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'IPK wajib diisi.';
+              }
+
+              final number = double.tryParse(
+                value.trim().replaceAll(',', '.'),
+              );
+
+              if (number == null || number < 0 || number > 4) {
+                return 'IPK harus berada di antara 0.00 sampai 4.00.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 16),
+
+          _buildInputField(
+            label: 'IPS',
+            hint: 'Contoh: 3.80',
+            icon: Icons.bar_chart_rounded,
+            controller: _ipsController,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'IPS wajib diisi.';
+              }
+
+              final number = double.tryParse(
+                value.trim().replaceAll(',', '.'),
+              );
+
+              if (number == null || number < 0 || number > 4) {
+                return 'IPS harus berada di antara 0.00 sampai 4.00.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 22),
+
+          _buildSectionTitle(
+            'Informasi SKS',
+            'Lengkapi jumlah SKS yang sudah dan akan ditempuh.',
+          ),
+          const SizedBox(height: 14),
+
+          _buildInputField(
+            label: 'Total SKS yang Ditempuh',
+            hint: 'Contoh: 80',
+            icon: Icons.menu_book_rounded,
+            controller: _totalSksController,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Total SKS wajib diisi.';
+              }
+
+              final number = int.tryParse(value.trim());
+
+              if (number == null || number < 0) {
+                return 'Masukkan total SKS yang valid.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 16),
+
+          _buildInputField(
+            label: 'Target Total SKS',
+            hint: 'Contoh: 144',
+            icon: Icons.flag_rounded,
+            controller: _targetSksController,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Target SKS wajib diisi.';
+              }
+
+              final number = int.tryParse(value.trim());
+
+              if (number == null || number <= 0) {
+                return 'Target SKS harus lebih dari 0.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 22),
+
+          _buildSectionTitle(
+            'Informasi Kehadiran',
+            'Masukkan persentase kehadiran selama semester berlangsung.',
+          ),
+          const SizedBox(height: 14),
+
+          _buildInputField(
+            label: 'Kehadiran',
+            hint: 'Contoh: 90',
+            icon: Icons.event_available_rounded,
+            controller: _kehadiranController,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Kehadiran wajib diisi.';
+              }
+
+              final number = double.tryParse(
+                value.trim().replaceAll(',', '.'),
+              );
+
+              if (number == null || number < 0 || number > 100) {
+                return 'Kehadiran harus berada di antara 0 sampai 100%.';
+              }
+
+              return null;
+            },
+          ),
+
+          const SizedBox(height: 30),
+
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _saveData,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
-              )
-            : const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.save_rounded,
-                    size: 20,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Simpan Data',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
               ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 23,
+                      height: 23,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isEditing
+                              ? Icons.save_rounded
+                              : Icons.check_circle_rounded,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          isEditing
+                              ? 'Simpan Perubahan'
+                              : 'Simpan Data',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton(
+              onPressed: _isLoading
+                  ? null
+                  : () => Navigator.pop(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _darkBlue,
+                side: BorderSide(color: _borderColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: const Text(
+                'Kembali',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -661,106 +808,37 @@ class _InputStatistikScreenState extends State<InputStatistikScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 450,
-            ),
-            child: Form(
-              key: _formKey,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  16.0,
-                  12.0,
-                  16.0,
-                  65.0,
+            constraints: const BoxConstraints(maxWidth: 450),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    16.0,
+                    12.0,
+                    16.0,
+                    0,
+                  ),
+                  child: _buildNavigationHeader(),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeader(),
-                    const SizedBox(height: 22),
-                    _buildInfoCard(),
-                    const SizedBox(height: 22),
-                    _buildTextField(
-                      controller: _semesterController,
-                      label: 'Semester',
-                      hint: 'Contoh: 1',
-                      icon: Icons.school_rounded,
-                      validator: _validateSemester,
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 18),
-                    _buildTextField(
-                      controller: _ipkController,
-                      label: 'IPK',
-                      hint: 'Contoh: 3.60',
-                      icon: Icons.workspace_premium_rounded,
-                      validator: _validateIpk,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _buildTextField(
-                      controller: _ipsController,
-                      label: 'IPS',
-                      hint: 'Contoh: 3.75',
-                      icon: Icons.trending_up_rounded,
-                      validator: _validateIps,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _buildTextField(
-                      controller: _totalSksController,
-                      label: 'Total SKS',
-                      hint: 'Contoh: 84',
-                      icon: Icons.menu_book_rounded,
-                      validator: _validateSks,
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 18),
-                    _buildTextField(
-                      controller: _targetSksController,
-                      label: 'Target SKS',
-                      hint: 'Contoh: 144',
-                      icon: Icons.flag_rounded,
-                      validator: _validateTargetSks,
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 24),
-                    _buildSaveButton(),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                Navigator.pop(context);
-                              },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _darkBlue,
-                          side: BorderSide(
-                            color: _borderColor,
+                Expanded(
+                  child: _isInitializing
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            color: _primaryColor,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                        )
+                      : SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(
+                            16.0,
+                            12.0,
+                            16.0,
+                            65.0,
                           ),
+                          child: _buildFormContent(),
                         ),
-                        child: const Text(
-                          'Batal',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
-              ),
+              ],
             ),
           ),
         ),

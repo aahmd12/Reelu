@@ -1,4 +1,9 @@
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../core/constants/dbsupabase.dart';
 
 class DataAcademicScreen extends StatefulWidget {
@@ -8,7 +13,8 @@ class DataAcademicScreen extends StatefulWidget {
   State<DataAcademicScreen> createState() => _DataAcademicScreenState();
 }
 
-class _DataAcademicScreenState extends State<DataAcademicScreen> {
+class _DataAcademicScreenState extends State<DataAcademicScreen>
+    with WidgetsBindingObserver {
   String _fullName = '-';
   String _nim = '-';
   String _prodi = '-';
@@ -20,15 +26,127 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
   String _targetSks = '-';
   String _semester = '-';
   String _kehadiran = '-';
-  String _mkBelumLulus = '-';
-  String _mkMengulang = '-';
 
   bool _isLoading = true;
+
+  RealtimeChannel? _realtimeChannel;
+  Timer? _reloadDebounce;
+
+  bool _isReloading = false;
+  bool _reloadAgain = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+
+    WidgetsBinding.instance.addObserver(this);
+
+    _loadUserData().then((_) {
+      if (mounted) {
+        _setupRealtime();
+      }
+    });
+  }
+
+  void _setupRealtime() {
+    final user = supabase.auth.currentUser;
+
+    if (user == null || !mounted) return;
+
+    if (_realtimeChannel != null) return;
+
+    _realtimeChannel = supabase
+        .channel('data-academic-${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'academic_records',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            debugPrint(
+              'Realtime academic_records: ${payload.eventType}',
+            );
+
+            _scheduleReload();
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'profiles',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            debugPrint(
+              'Realtime profiles: ${payload.eventType}',
+            );
+
+            _scheduleReload();
+          },
+        )
+        .subscribe((status, error) {
+          debugPrint('Realtime status: $status');
+
+          if (error != null) {
+            debugPrint('Realtime error: $error');
+          }
+        });
+  }
+
+  void _scheduleReload() {
+    if (!mounted) return;
+
+    _reloadDebounce?.cancel();
+
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () {
+        if (!mounted) return;
+
+        if (_isReloading) {
+          _reloadAgain = true;
+          return;
+        }
+
+        _refreshData();
+      },
+    );
+  }
+
+  Future<void> _refreshData() async {
+    if (!mounted) return;
+
+    if (_isReloading) {
+      _reloadAgain = true;
+      return;
+    }
+
+    _isReloading = true;
+
+    try {
+      await _loadUserData();
+    } finally {
+      _isReloading = false;
+
+      if (_reloadAgain && mounted) {
+        _reloadAgain = false;
+        _scheduleReload();
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _scheduleReload();
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -45,21 +163,17 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
         return;
       }
 
-      setState(() {
-        _fullName = '-';
-        _nim = '-';
-        _prodi = '-';
-        _univ = '-';
+      String fullName = '-';
+      String nim = '-';
+      String prodi = '-';
+      String univ = '-';
 
-        _ipk = '-';
-        _ips = '-';
-        _totalSks = '-';
-        _targetSks = '-';
-        _semester = '-';
-        _kehadiran = '-';
-        _mkBelumLulus = '-';
-        _mkMengulang = '-';
-      });
+      String ipk = '-';
+      String ips = '-';
+      String totalSks = '-';
+      String targetSks = '-';
+      String semester = '-';
+      String kehadiran = '-';
 
       final profileResponse = await supabase
           .from('profiles')
@@ -70,70 +184,45 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
           .maybeSingle();
 
       if (profileResponse != null) {
-        final fullName =
+        final nameValue =
             profileResponse['full_name']?.toString().trim() ?? '';
 
-        final nim =
+        final nimValue =
             profileResponse['nim']?.toString().trim() ?? '';
 
-        final prodi =
+        final prodiValue =
             profileResponse['prodi']?.toString().trim() ?? '';
 
-        final univ =
+        final univValue =
             profileResponse['univ']?.toString().trim() ?? '';
 
-        if (fullName.isNotEmpty) {
-          _fullName = fullName;
+        if (nameValue.isNotEmpty) {
+          fullName = nameValue;
         }
 
-        if (nim.isNotEmpty) {
-          _nim = nim;
+        if (nimValue.isNotEmpty) {
+          nim = nimValue;
         }
 
-        if (prodi.isNotEmpty) {
-          _prodi = prodi;
+        if (prodiValue.isNotEmpty) {
+          prodi = prodiValue;
         }
 
-        if (univ.isNotEmpty) {
-          _univ = univ;
+        if (univValue.isNotEmpty) {
+          univ = univValue;
         }
       }
 
-      if (_fullName == '-' &&
+      if (fullName == '-' &&
           user.email != null &&
           user.email!.isNotEmpty) {
-        _fullName = user.email!.split('@').first;
-      }
-
-      final metadata = user.userMetadata;
-
-      if (metadata != null) {
-        final kehadiran =
-            metadata['kehadiran']?.toString().trim() ?? '';
-
-        final mkBelumLulus =
-            metadata['mk_belum_lulus']?.toString().trim() ?? '';
-
-        final mkMengulang =
-            metadata['mk_mengulang']?.toString().trim() ?? '';
-
-        if (kehadiran.isNotEmpty) {
-          _kehadiran = kehadiran;
-        }
-
-        if (mkBelumLulus.isNotEmpty) {
-          _mkBelumLulus = mkBelumLulus;
-        }
-
-        if (mkMengulang.isNotEmpty) {
-          _mkMengulang = mkMengulang;
-        }
+        fullName = user.email!.split('@').first;
       }
 
       final academicResponse = await supabase
           .from('academic_records')
           .select(
-            'id, user_id, semester, ips, ipk, total_sks, target_sks, created_at',
+            'id, user_id, semester, ips, ipk, total_sks, target_sks, kehadiran, created_at',
           )
           .eq('user_id', user.id)
           .order('semester', ascending: false)
@@ -147,35 +236,67 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
         final totalSksValue = academicResponse['total_sks'];
         final targetSksValue = academicResponse['target_sks'];
         final semesterValue = academicResponse['semester'];
+        final kehadiranValue = academicResponse['kehadiran'];
 
         if (ipkValue != null) {
-          _ipk = ipkValue.toString();
+          ipk = ipkValue.toString();
         }
 
         if (ipsValue != null) {
-          _ips = ipsValue.toString();
+          ips = ipsValue.toString();
         }
 
         if (totalSksValue != null) {
-          _totalSks = totalSksValue.toString();
+          totalSks = totalSksValue.toString();
         }
 
         if (targetSksValue != null) {
-          _targetSks = targetSksValue.toString();
+          targetSks = targetSksValue.toString();
         }
 
         if (semesterValue != null) {
-          _semester = semesterValue.toString();
+          semester = semesterValue.toString();
+        }
+
+        if (kehadiranValue != null &&
+            kehadiranValue.toString().trim().isNotEmpty) {
+          kehadiran = kehadiranValue.toString();
         }
       }
 
       if (!mounted) return;
 
       setState(() {
+        _fullName = fullName;
+        _nim = nim;
+        _prodi = prodi;
+        _univ = univ;
+
+        _ipk = ipk;
+        _ips = ips;
+        _totalSks = totalSks;
+        _targetSks = targetSks;
+        _semester = semester;
+        _kehadiran = kehadiran;
+
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint('Error loading data: $e');
+
+      debugPrint('======================================');
+      debugPrint('DATA AKADEMIK BERHASIL DIPERBARUI');
+      debugPrint('Nama       : $_fullName');
+      debugPrint('NIM        : $_nim');
+      debugPrint('IPS        : $_ips');
+      debugPrint('IPK        : $_ipk');
+      debugPrint('Total SKS  : $_totalSks');
+      debugPrint('Target SKS : $_targetSks');
+      debugPrint('Semester   : $_semester');
+      debugPrint('Kehadiran  : $_kehadiran');
+      debugPrint('======================================');
+    } catch (e, stackTrace) {
+      debugPrint('GAGAL MEMUAT DATA AKADEMIK');
+      debugPrint('Error: $e');
+      debugPrint('StackTrace: $stackTrace');
 
       if (!mounted) return;
 
@@ -198,11 +319,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
 
     if (!mounted) return;
 
-    setState(() {
-      _isLoading = true;
-    });
-
-    await _loadUserData();
+    await _refreshData();
   }
 
   void _showMessage(
@@ -241,6 +358,20 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
+    _reloadDebounce?.cancel();
+
+    if (_realtimeChannel != null) {
+      supabase.removeChannel(_realtimeChannel!);
+      _realtimeChannel = null;
+    }
+
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -258,7 +389,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                   ),
                   child: RefreshIndicator(
                     color: const Color(0xFF2563EB),
-                    onRefresh: _loadUserData,
+                    onRefresh: _refreshData,
                     child: SingleChildScrollView(
                       physics:
                           const AlwaysScrollableScrollPhysics(),
@@ -351,8 +482,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Program Studi',
                                     _prodi,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -361,8 +491,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Universitas',
                                     _univ,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                 ],
                               ),
@@ -398,8 +527,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'IPK',
                                     _ipk,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -408,8 +536,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'IPS',
                                     _ips,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -418,8 +545,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Total SKS',
                                     _totalSks,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -428,8 +554,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Target SKS',
                                     _targetSks,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -438,8 +563,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Semester',
                                     _semester,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                   const Divider(
                                     height: 20,
@@ -448,28 +572,7 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   _buildInfoRow(
                                     'Kehadiran',
                                     _kehadiran,
-                                    textColor:
-                                        Colors.black87,
-                                  ),
-                                  const Divider(
-                                    height: 20,
-                                    thickness: 0.5,
-                                  ),
-                                  _buildInfoRow(
-                                    'Mata Kuliah Belum Lulus',
-                                    _mkBelumLulus,
-                                    textColor:
-                                        Colors.black87,
-                                  ),
-                                  const Divider(
-                                    height: 20,
-                                    thickness: 0.5,
-                                  ),
-                                  _buildInfoRow(
-                                    'Mata Kuliah Mengulang',
-                                    _mkMengulang,
-                                    textColor:
-                                        Colors.black87,
+                                    textColor: Colors.black87,
                                   ),
                                 ],
                               ),
@@ -485,10 +588,8 @@ class _DataAcademicScreenState extends State<DataAcademicScreen> {
                                   ElevatedButton.styleFrom(
                                 backgroundColor:
                                     const Color(0xFF1867E5),
-                                foregroundColor:
-                                    Colors.white,
-                                shape:
-                                    RoundedRectangleBorder(
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
                                   borderRadius:
                                       BorderRadius.circular(12),
                                 ),

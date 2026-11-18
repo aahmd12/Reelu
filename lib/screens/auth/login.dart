@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../services/auth.dart'; // Mengarah ke file auth.dart
+import '../../services/auth.dart'; 
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,14 +16,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // =========================
-  // LOGIN
-  // =========================
   Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    // Validasi email kosong
     if (email.isEmpty) {
       _showMessage(
         'Email wajib diisi.',
@@ -32,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Validasi format email
     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
       _showMessage(
         'Format email tidak valid (contoh: user@gmail.com).',
@@ -41,7 +36,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Validasi password kosong
     if (password.isEmpty) {
       _showMessage(
         'Password wajib diisi.',
@@ -55,13 +49,12 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // Memanggil AuthService() sesuai nama class pada auth.dart
+
       final response = await AuthService().login(
         email: email,
         password: password,
       );
 
-      // Cek apakah user berhasil login
       if (response != null && response.user != null) {
         debugPrint('=================================');
         debugPrint('LOGIN BERHASIL');
@@ -81,7 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on AuthException catch (e) {
-      // Handling Error Khusus Supabase Auth
+
       debugPrint('=================================');
       debugPrint('SUPABASE AUTH ERROR');
       debugPrint('Message: ${e.message}');
@@ -133,9 +126,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // =========================
-  // SNACKBAR
-  // =========================
   void _showMessage(
     String message, {
     bool isError = false,
@@ -176,9 +166,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // =========================
-  // INPUT DECORATION
-  // =========================
   InputDecoration _inputDecoration({
     required String hint,
     required IconData icon,
@@ -229,9 +216,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // =========================
-  // UI
-  // =========================
   @override
   Widget build(BuildContext context) {
     return Scaffold(

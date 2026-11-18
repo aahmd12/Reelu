@@ -1,5 +1,7 @@
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../core/constants/dbsupabase.dart';
 import '../../models/academicrecord.dart';
 import '../../services/academic.dart';
@@ -40,16 +42,25 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     }
   }
 
-  // ============================================================
-  // LOAD DATA
-  // ============================================================
-
   Future<void> _loadExistingData() async {
     if (mounted) {
       setState(() {
         _isLoadingData = true;
       });
     }
+
+    _existingRecord = null;
+
+    _prodiController.clear();
+    _univController.clear();
+    _ipsController.clear();
+    _ipkController.clear();
+    _sksController.clear();
+    _targetSksController.clear();
+    _semesterController.clear();
+    _kehadiranController.clear();
+    _belumLulusController.clear();
+    _mengulangController.clear();
 
     try {
       final user = supabase.auth.currentUser;
@@ -59,40 +70,6 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
       }
 
       final metadata = user.userMetadata;
-
-      String ipkMetadata = '';
-      String sksMetadata = '';
-      String targetSksMetadata = '';
-      String semesterMetadata = '';
-      String kehadiran = '';
-      String belumLulus = '';
-      String mengulang = '';
-
-      if (metadata != null) {
-        ipkMetadata = metadata['ipk']?.toString() ?? '';
-
-        sksMetadata =
-            metadata['total_sks']?.toString() ?? '';
-
-        targetSksMetadata =
-            metadata['target_sks']?.toString() ?? '';
-
-        semesterMetadata =
-            metadata['semester']?.toString() ?? '';
-
-        kehadiran =
-            metadata['kehadiran']?.toString() ?? '';
-
-        belumLulus =
-            metadata['mk_belum_lulus']?.toString() ?? '';
-
-        mengulang =
-            metadata['mk_mengulang']?.toString() ?? '';
-      }
-
-      // ========================================================
-      // AMBIL PRODI & UNIVERSITAS DARI TABLE PROFILES
-      // ========================================================
 
       String prodi = '';
       String univ = '';
@@ -104,52 +81,17 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
           .maybeSingle();
 
       if (profileResponse != null) {
-        prodi =
-            profileResponse['prodi']?.toString() ?? '';
-
-        univ =
-            profileResponse['univ']?.toString() ?? '';
-
-        debugPrint(
-          '======================================',
-        );
-        debugPrint(
-          'DATA PROFILE UNTUK EDIT',
-        );
-        debugPrint(
-          'User ID : ${user.id}',
-        );
-        debugPrint(
-          'Prodi   : $prodi',
-        );
-        debugPrint(
-          'Univ    : $univ',
-        );
-        debugPrint(
-          '======================================',
-        );
-      } else {
-        debugPrint(
-          'Belum ada data profile untuk user ini.',
-        );
-
-        if (metadata != null) {
-          prodi =
-              metadata['prodi']?.toString() ?? '';
-
-          univ =
-              metadata['univ']?.toString() ?? '';
-        }
+        prodi = profileResponse['prodi']?.toString() ?? '';
+        univ = profileResponse['univ']?.toString() ?? '';
+      } else if (metadata != null) {
+        prodi = metadata['prodi']?.toString() ?? '';
+        univ = metadata['univ']?.toString() ?? '';
       }
-
-      // ========================================================
-      // AMBIL DATA AKADEMIK TERAKHIR
-      // ========================================================
 
       final response = await supabase
           .from('academic_records')
           .select(
-            'id, user_id, semester, ips, ipk, total_sks, target_sks, created_at',
+            'id, user_id, semester, ips, ipk, total_sks, target_sks, kehadiran, created_at',
           )
           .eq('user_id', user.id)
           .order('semester', ascending: false)
@@ -157,103 +99,57 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
           .limit(1)
           .maybeSingle();
 
-      AcademicRecord? record;
+      _prodiController.text = prodi;
+      _univController.text = univ;
 
       if (response != null) {
-        record = AcademicRecord.fromJson(response);
+        final record = AcademicRecord.fromJson(response);
 
-        debugPrint(
-          '======================================',
-        );
-        debugPrint(
-          'DATA AKADEMIK UNTUK EDIT',
-        );
-        debugPrint(
-          'ID         : ${record.id}',
-        );
-        debugPrint(
-          'Semester   : ${record.semester}',
-        );
-        debugPrint(
-          'IPS        : ${record.ips}',
-        );
-        debugPrint(
-          'IPK        : ${record.ipk}',
-        );
-        debugPrint(
-          'Total SKS  : ${record.totalSks}',
-        );
-        debugPrint(
-          'Target SKS : ${record.targetSks}',
-        );
-        debugPrint(
-          '======================================',
-        );
-      } else {
-        debugPrint(
-          'Belum ada data academic_records.',
-        );
-      }
-
-      // ========================================================
-      // MASUKKAN DATA KE CONTROLLER
-      // ========================================================
-
-      if (record != null) {
         _existingRecord = record;
 
-        _prodiController.text = prodi;
-        _univController.text = univ;
-
-        _ipsController.text =
-            _formatNumber(record.ips);
-
-        _ipkController.text =
-            _formatNumber(record.ipk);
-
-        _sksController.text =
-            record.totalSks.toString();
-
-        _targetSksController.text =
-            record.targetSks.toString();
-
-        _semesterController.text =
-            record.semester.toString();
+        _ipsController.text = _formatNumber(record.ips);
+        _ipkController.text = _formatNumber(record.ipk);
+        _sksController.text = record.totalSks.toString();
+        _targetSksController.text = record.targetSks.toString();
+        _semesterController.text = record.semester.toString();
 
         _kehadiranController.text =
-            kehadiran;
+            response['kehadiran']?.toString() ?? '';
 
         _belumLulusController.text =
-            belumLulus;
+            metadata?['mk_belum_lulus']?.toString() ?? '';
 
         _mengulangController.text =
-            mengulang;
+            metadata?['mk_mengulang']?.toString() ?? '';
+
+        debugPrint('======================================');
+        debugPrint('DATA AKADEMIK UNTUK EDIT');
+        debugPrint('ID         : ${record.id}');
+        debugPrint('Semester   : ${record.semester}');
+        debugPrint('IPS        : ${record.ips}');
+        debugPrint('IPK        : ${record.ipk}');
+        debugPrint('Total SKS  : ${record.totalSks}');
+        debugPrint('Target SKS : ${record.targetSks}');
+        debugPrint(
+          'Kehadiran  : ${response['kehadiran']}',
+        );
+        debugPrint('======================================');
       } else {
-        _prodiController.text = prodi;
-        _univController.text = univ;
+        _existingRecord = null;
 
-        _ipsController.text = '';
+        _ipsController.clear();
+        _ipkController.clear();
+        _sksController.clear();
+        _targetSksController.clear();
+        _semesterController.clear();
+        _kehadiranController.clear();
+        _belumLulusController.clear();
+        _mengulangController.clear();
 
-        _ipkController.text =
-            ipkMetadata;
-
-        _sksController.text =
-            sksMetadata;
-
-        _targetSksController.text =
-            targetSksMetadata;
-
-        _semesterController.text =
-            semesterMetadata;
-
-        _kehadiranController.text =
-            kehadiran;
-
-        _belumLulusController.text =
-            belumLulus;
-
-        _mengulangController.text =
-            mengulang;
+        debugPrint('======================================');
+        debugPrint('DATA AKADEMIK TIDAK DITEMUKAN');
+        debugPrint('Seluruh form akademik dikosongkan.');
+        debugPrint('======================================');
       }
 
       if (mounted) {
@@ -262,16 +158,10 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
         });
       }
     } catch (e) {
-      debugPrint(
-        '======================================',
-      );
-      debugPrint(
-        'ERROR LOAD DATA AKADEMIK',
-      );
+      debugPrint('======================================');
+      debugPrint('ERROR LOAD DATA AKADEMIK');
       debugPrint('$e');
-      debugPrint(
-        '======================================',
-      );
+      debugPrint('======================================');
 
       if (mounted) {
         setState(() {
@@ -280,19 +170,13 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Gagal mengambil data: $e',
-            ),
+            content: Text('Gagal mengambil data: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
   }
-
-  // ============================================================
-  // FORMAT ANGKA
-  // ============================================================
 
   String _formatNumber(double value) {
     if (value == value.roundToDouble()) {
@@ -301,10 +185,6 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
 
     return value.toString();
   }
-
-  // ============================================================
-  // DISPOSE
-  // ============================================================
 
   @override
   void dispose() {
@@ -322,13 +202,8 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     super.dispose();
   }
 
-  // ============================================================
-  // PARSE DOUBLE
-  // ============================================================
-
   double? _parseDouble(String value) {
-    final cleanedValue =
-        value.trim().replaceAll(',', '.');
+    final cleanedValue = value.trim().replaceAll(',', '.');
 
     if (cleanedValue.isEmpty) {
       return null;
@@ -337,22 +212,9 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     return double.tryParse(cleanedValue);
   }
 
-  // ============================================================
-  // SAVE DATA
-  // ============================================================
-
   Future<void> _save() async {
-    final ips = _parseDouble(
-      _ipsController.text,
-    );
-
-    final ipk = _parseDouble(
-      _ipkController.text,
-    );
-
-    // ========================================================
-    // VALIDASI IPS
-    // ========================================================
+    final ips = _parseDouble(_ipsController.text);
+    final ipk = _parseDouble(_ipkController.text);
 
     if (ips == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -378,10 +240,6 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
       return;
     }
 
-    // ========================================================
-    // VALIDASI IPK
-    // ========================================================
-
     if (ipk == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -406,12 +264,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
       return;
     }
 
-    // ========================================================
-    // VALIDASI PRODI
-    // ========================================================
-
-    final prodi =
-        _prodiController.text.trim();
+    final prodi = _prodiController.text.trim();
 
     if (prodi.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -425,12 +278,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
       return;
     }
 
-    // ========================================================
-    // VALIDASI UNIVERSITAS
-    // ========================================================
-
-    final univ =
-        _univController.text.trim();
+    final univ = _univController.text.trim();
 
     if (univ.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -444,18 +292,11 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
       return;
     }
 
-    // ========================================================
-    // VALIDASI SEMESTER
-    // ========================================================
-
-    final semester =
-        int.tryParse(
+    final semester = int.tryParse(
       _semesterController.text.trim(),
     );
 
-    if (semester == null ||
-        semester < 1 ||
-        semester > 14) {
+    if (semester == null || semester < 1 || semester > 14) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -474,53 +315,23 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     }
 
     try {
-      // ======================================================
-      // AMBIL USER LOGIN
-      // ======================================================
-
-      final currentUser =
-          AuthService().currentUser;
+      final currentUser = AuthService().currentUser;
 
       if (currentUser == null) {
-        throw Exception(
-          'Pengguna belum login.',
-        );
+        throw Exception('Pengguna belum login.');
       }
 
-      final userId =
-          currentUser.id;
+      final userId = currentUser.id;
+      final userEmail = currentUser.email;
 
-      final userEmail =
-          currentUser.email;
-
-      debugPrint(
-        '======================================',
-      );
-      debugPrint(
-        'MENYIMPAN DATA PROFILE',
-      );
-      debugPrint(
-        'User ID : $userId',
-      );
-      debugPrint(
-        'Email   : $userEmail',
-      );
-      debugPrint(
-        'Prodi   : $prodi',
-      );
-      debugPrint(
-        'Univ    : $univ',
-      );
-      debugPrint(
-        'Semester: $semester',
-      );
-      debugPrint(
-        '======================================',
-      );
-
-      // ======================================================
-      // SIMPAN PRODI & UNIVERSITAS KE TABLE PROFILES
-      // ======================================================
+      debugPrint('======================================');
+      debugPrint('MENYIMPAN DATA PROFILE');
+      debugPrint('User ID : $userId');
+      debugPrint('Email   : $userEmail');
+      debugPrint('Prodi   : $prodi');
+      debugPrint('Univ    : $univ');
+      debugPrint('Semester: $semester');
+      debugPrint('======================================');
 
       final profileData = await supabase
           .from('profiles')
@@ -530,36 +341,16 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
             'prodi': prodi,
             'univ': univ,
           })
-          .select(
-            'id, email, prodi, univ',
-          )
+          .select('id, email, prodi, univ')
           .single();
 
-      debugPrint(
-        '======================================',
-      );
-      debugPrint(
-        'PROFILE BERHASIL DISIMPAN',
-      );
-      debugPrint(
-        'ID    : ${profileData['id']}',
-      );
-      debugPrint(
-        'Email : ${profileData['email']}',
-      );
-      debugPrint(
-        'Prodi : ${profileData['prodi']}',
-      );
-      debugPrint(
-        'Univ  : ${profileData['univ']}',
-      );
-      debugPrint(
-        '======================================',
-      );
-
-      // ======================================================
-      // BUAT OBJECT DATA AKADEMIK
-      // ======================================================
+      debugPrint('======================================');
+      debugPrint('PROFILE BERHASIL DISIMPAN');
+      debugPrint('ID    : ${profileData['id']}');
+      debugPrint('Email : ${profileData['email']}');
+      debugPrint('Prodi : ${profileData['prodi']}');
+      debugPrint('Univ  : ${profileData['univ']}');
+      debugPrint('======================================');
 
       final record = AcademicRecord(
         id: _existingRecord?.id,
@@ -577,51 +368,18 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
             0,
       );
 
-      // ======================================================
-      // DEBUG DATA AKADEMIK
-      // ======================================================
+      debugPrint('======================================');
+      debugPrint('DATA AKADEMIK YANG AKAN DISIMPAN');
+      debugPrint('User ID    : ${record.userId}');
+      debugPrint('ID         : ${record.id}');
+      debugPrint('Semester   : ${record.semester}');
+      debugPrint('IPS        : ${record.ips}');
+      debugPrint('IPK        : ${record.ipk}');
+      debugPrint('Total SKS  : ${record.totalSks}');
+      debugPrint('Target SKS : ${record.targetSks}');
+      debugPrint('======================================');
 
-      debugPrint(
-        '======================================',
-      );
-      debugPrint(
-        'DATA AKADEMIK YANG AKAN DISIMPAN',
-      );
-      debugPrint(
-        'User ID    : ${record.userId}',
-      );
-      debugPrint(
-        'ID         : ${record.id}',
-      );
-      debugPrint(
-        'Semester   : ${record.semester}',
-      );
-      debugPrint(
-        'IPS        : ${record.ips}',
-      );
-      debugPrint(
-        'IPK        : ${record.ipk}',
-      );
-      debugPrint(
-        'Total SKS  : ${record.totalSks}',
-      );
-      debugPrint(
-        'Target SKS : ${record.targetSks}',
-      );
-      debugPrint(
-        '======================================',
-      );
-
-      // ======================================================
-      // SIMPAN DATA AKADEMIK
-      // ======================================================
-
-      await AcademicService()
-          .saveAcademicRecord(record);
-
-      // ======================================================
-      // SIMPAN JUGA KE AUTH METADATA
-      // ======================================================
+      await AcademicService().saveAcademicRecord(record);
 
       await supabase.auth.updateUser(
         UserAttributes(
@@ -629,25 +387,15 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
             'prodi': prodi,
             'univ': univ,
             'ipk': ipk.toString(),
-            'total_sks':
-                _sksController.text.trim(),
-            'target_sks':
-                _targetSksController.text.trim(),
-            'semester':
-                semester.toString(),
-            'kehadiran':
-                _kehadiranController.text.trim(),
-            'mk_belum_lulus':
-                _belumLulusController.text.trim(),
-            'mk_mengulang':
-                _mengulangController.text.trim(),
+            'total_sks': _sksController.text.trim(),
+            'target_sks': _targetSksController.text.trim(),
+            'semester': semester.toString(),
+            'kehadiran': _kehadiranController.text.trim(),
+            'mk_belum_lulus': _belumLulusController.text.trim(),
+            'mk_mengulang': _mengulangController.text.trim(),
           },
         ),
       );
-
-      // ======================================================
-      // BERHASIL
-      // ======================================================
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -661,36 +409,23 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
         );
 
         await Future.delayed(
-          const Duration(
-            milliseconds: 1500,
-          ),
+          const Duration(milliseconds: 1500),
         );
 
         if (mounted) {
-          Navigator.pop(
-            context,
-            true,
-          );
+          Navigator.pop(context, true);
         }
       }
     } catch (e) {
-      debugPrint(
-        '======================================',
-      );
-      debugPrint(
-        'ERROR MENYIMPAN DATA AKADEMIK',
-      );
+      debugPrint('======================================');
+      debugPrint('ERROR MENYIMPAN DATA AKADEMIK');
       debugPrint('$e');
-      debugPrint(
-        '======================================',
-      );
+      debugPrint('======================================');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Gagal menyimpan data: $e',
-            ),
+            content: Text('Gagal menyimpan data: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -704,30 +439,22 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     }
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF8F9FA),
       body: SafeArea(
         child: _isLoadingData
             ? const Center(
                 child: Column(
-                  mainAxisSize:
-                      MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
                       width: 28,
                       height: 28,
-                      child:
-                          CircularProgressIndicator(
+                      child: CircularProgressIndicator(
                         strokeWidth: 3,
-                        color:
-                            Color(0xFF1867E5),
+                        color: Color(0xFF1867E5),
                       ),
                     ),
                     SizedBox(height: 14),
@@ -743,128 +470,74 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
               )
             : Center(
                 child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(
+                  constraints: const BoxConstraints(
                     maxWidth: 450,
                   ),
-                  child:
-                      SingleChildScrollView(
-                    padding:
-                        const EdgeInsets.symmetric(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
                       horizontal: 16.0,
                       vertical: 12.0,
                     ),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ==================================================
-                        // HEADER
-                        // ==================================================
-
                         Padding(
-                          padding:
-                              const EdgeInsets.only(
+                          padding: const EdgeInsets.only(
                             bottom: 20.0,
                             top: 8.0,
                           ),
                           child: InkWell(
-                            borderRadius:
-                                BorderRadius.circular(
-                              8,
-                            ),
-                            onTap: () =>
-                                Navigator.pop(
-                              context,
-                            ),
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => Navigator.pop(context),
                             child: const Row(
-                              mainAxisSize:
-                                  MainAxisSize.min,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
                                   Icons.chevron_left,
-                                  color:
-                                      Colors.black,
+                                  color: Colors.black,
                                   size: 30,
                                 ),
-                                SizedBox(
-                                  width: 8,
-                                ),
+                                SizedBox(width: 8),
                                 Text(
                                   'Edit Data Mahasiswa',
-                                  style:
-                                      TextStyle(
-                                    color:
-                                        Colors.black,
-                                    fontWeight:
-                                        FontWeight.bold,
-                                    fontSize:
-                                        20,
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 20,
                                   ),
                                 ),
                               ],
                             ),
                           ),
                         ),
-
-                        // ==================================================
-                        // INFORMASI MAHASISWA
-                        // ==================================================
-
                         Card(
                           elevation: 0,
-                          color:
-                              Colors.white,
-                          shape:
-                              RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius
-                                    .circular(
-                              16,
-                            ),
+                          color: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                             side: BorderSide(
-                              color: Colors
-                                  .grey
-                                  .shade200,
+                              color: Colors.grey.shade200,
                             ),
                           ),
                           child: Padding(
-                            padding:
-                                const EdgeInsets
-                                    .all(
-                              16.0,
-                            ),
+                            padding: const EdgeInsets.all(16.0),
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment
-                                      .start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
                                   'Informasi Mahasiswa',
-                                  style:
-                                      TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight:
-                                        FontWeight
-                                            .bold,
-                                    color: Colors
-                                        .black87,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
                                   ),
                                 ),
-
-                                const SizedBox(
-                                  height: 16,
-                                ),
-
+                                const SizedBox(height: 16),
                                 _buildTextField(
                                   'Program Studi',
                                   _prodiController,
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Universitas',
                                   _univController,
@@ -873,193 +546,92 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
                             ),
                           ),
                         ),
-
-                        const SizedBox(
-                          height: 16,
-                        ),
-
-                        // ==================================================
-                        // DATA AKADEMIK
-                        // ==================================================
-
+                        const SizedBox(height: 16),
                         Card(
                           elevation: 0,
-                          color:
-                              Colors.white,
-                          shape:
-                              RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius
-                                    .circular(
-                              16,
-                            ),
+                          color: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                             side: BorderSide(
-                              color: Colors
-                                  .grey
-                                  .shade200,
+                              color: Colors.grey.shade200,
                             ),
                           ),
                           child: Padding(
-                            padding:
-                                const EdgeInsets
-                                    .all(
-                              16.0,
-                            ),
+                            padding: const EdgeInsets.all(16.0),
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment
-                                      .start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
                                   'Data Akademik',
-                                  style:
-                                      TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight:
-                                        FontWeight
-                                            .bold,
-                                    color: Colors
-                                        .black87,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
                                   ),
                                 ),
-
-                                const SizedBox(
-                                  height: 16,
-                                ),
-
-                                // IPS
+                                const SizedBox(height: 16),
                                 _buildTextField(
                                   'IPS',
                                   _ipsController,
                                   keyboardType:
-                                      const TextInputType
-                                          .numberWithOptions(
-                                    decimal:
-                                        true,
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
                                   ),
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // IPK
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'IPK',
                                   _ipkController,
                                   keyboardType:
-                                      const TextInputType
-                                          .numberWithOptions(
-                                    decimal:
-                                        true,
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
                                   ),
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // TOTAL SKS
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Total SKS',
                                   _sksController,
-                                  keyboardType:
-                                      TextInputType
-                                          .number,
+                                  keyboardType: TextInputType.number,
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // TARGET SKS
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Target SKS',
                                   _targetSksController,
-                                  keyboardType:
-                                      TextInputType
-                                          .number,
+                                  keyboardType: TextInputType.number,
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // SEMESTER
+                                const SizedBox(height: 12),
                                 _buildSemesterDropdown(),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // KEHADIRAN
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Kehadiran',
                                   _kehadiranController,
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // MATA KULIAH BELUM LULUS
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Mata Kuliah Belum Lulus',
                                   _belumLulusController,
-                                  keyboardType:
-                                      TextInputType
-                                          .number,
+                                  keyboardType: TextInputType.number,
                                 ),
-
-                                const SizedBox(
-                                  height: 12,
-                                ),
-
-                                // MATA KULIAH MENGULANG
+                                const SizedBox(height: 12),
                                 _buildTextField(
                                   'Mata Kuliah Mengulang',
                                   _mengulangController,
-                                  keyboardType:
-                                      TextInputType
-                                          .number,
+                                  keyboardType: TextInputType.number,
                                 ),
                               ],
                             ),
                           ),
                         ),
-
-                        const SizedBox(
-                          height: 24,
-                        ),
-
-                        // ==================================================
-                        // TOMBOL SIMPAN
-                        // ==================================================
-
+                        const SizedBox(height: 24),
                         SizedBox(
-                          width:
-                              double.infinity,
+                          width: double.infinity,
                           height: 48,
-                          child:
-                              ElevatedButton(
-                            onPressed:
-                                _isLoading
-                                    ? null
-                                    : _save,
-                            style:
-                                ElevatedButton
-                                    .styleFrom(
-                              backgroundColor:
-                                  const Color(
-                                0xFF1867E5,
-                              ),
-                              shape:
-                                  RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  12,
-                                ),
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _save,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1867E5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
                               elevation: 0,
                             ),
@@ -1067,84 +639,47 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
                                 ? const SizedBox(
                                     width: 20,
                                     height: 20,
-                                    child:
-                                        CircularProgressIndicator(
-                                      color: Colors
-                                          .white,
-                                      strokeWidth:
-                                          2,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
                                     ),
                                   )
                                 : const Text(
                                     'Simpan',
-                                    style:
-                                        TextStyle(
-                                      color: Colors
-                                          .white,
+                                    style: TextStyle(
+                                      color: Colors.white,
                                       fontSize: 15,
-                                      fontWeight:
-                                          FontWeight
-                                              .bold,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                           ),
                         ),
-
-                        const SizedBox(
-                          height: 12,
-                        ),
-
-                        // ==================================================
-                        // TOMBOL BATAL
-                        // ==================================================
-
+                        const SizedBox(height: 12),
                         SizedBox(
-                          width:
-                              double.infinity,
+                          width: double.infinity,
                           height: 48,
-                          child:
-                              OutlinedButton(
-                            onPressed: () =>
-                                Navigator.pop(
-                              context,
-                            ),
-                            style:
-                                OutlinedButton
-                                    .styleFrom(
-                              backgroundColor:
-                                  Colors.white,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
                               side: BorderSide(
-                                color: Colors
-                                    .grey
-                                    .shade300,
+                                color: Colors.grey.shade300,
                               ),
-                              shape:
-                                  RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  12,
-                                ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: const Text(
                               'Batal',
-                              style:
-                                  TextStyle(
-                                color: Colors
-                                    .black87,
+                              style: TextStyle(
+                                color: Colors.black87,
                                 fontSize: 15,
-                                fontWeight:
-                                    FontWeight
-                                        .bold,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
                         ),
-
-                        const SizedBox(
-                          height: 16,
-                        ),
+                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
@@ -1154,13 +689,8 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     );
   }
 
-  // ============================================================
-  // SEMESTER DROPDOWN
-  // ============================================================
-
   Widget _buildSemesterDropdown() {
-    final currentSemester =
-        int.tryParse(
+    final currentSemester = int.tryParse(
       _semesterController.text.trim(),
     );
 
@@ -1172,8 +702,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
             : null;
 
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Semester',
@@ -1183,9 +712,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(
-          height: 6,
-        ),
+        const SizedBox(height: 6),
         DropdownButtonFormField<int>(
           value: selectedSemester,
           isExpanded: true,
@@ -1196,30 +723,25 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
           ),
           decoration: InputDecoration(
             isDense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(
+            contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 12,
             ),
             border: OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide(
                 color: Colors.grey.shade300,
               ),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide(
                 color: Colors.grey.shade300,
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(8),
-              borderSide:
-                  const BorderSide(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
                 color: Color(0xFF1867E5),
               ),
             ),
@@ -1238,9 +760,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
 
               return DropdownMenuItem<int>(
                 value: semester,
-                child: Text(
-                  'Semester $semester',
-                ),
+                child: Text('Semester $semester'),
               );
             },
           ),
@@ -1249,8 +769,7 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
               : (value) {
                   if (value != null) {
                     setState(() {
-                      _semesterController.text =
-                          value.toString();
+                      _semesterController.text = value.toString();
                     });
                   }
                 },
@@ -1259,85 +778,52 @@ class _EditAcademicScreenState extends State<EditAcademicScreen> {
     );
   }
 
-  // ============================================================
-  // TEXT FIELD
-  // ============================================================
-
   Widget _buildTextField(
     String label,
     TextEditingController controller, {
-    TextInputType keyboardType =
-        TextInputType.text,
+    TextInputType keyboardType = TextInputType.text,
   }) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: TextStyle(
-            color:
-                Colors.grey.shade700,
+            color: Colors.grey.shade700,
             fontSize: 13,
-            fontWeight:
-                FontWeight.w500,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(
-          height: 6,
-        ),
+        const SizedBox(height: 6),
         TextField(
           controller: controller,
-          keyboardType:
-              keyboardType,
-          style:
-              const TextStyle(
+          keyboardType: keyboardType,
+          style: const TextStyle(
             fontSize: 14,
-            fontWeight:
-                FontWeight.bold,
+            fontWeight: FontWeight.bold,
           ),
-          decoration:
-              InputDecoration(
+          decoration: InputDecoration(
             isDense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(
+            contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 12,
             ),
-            border:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(
-                8,
-              ),
-              borderSide:
-                  BorderSide(
-                color: Colors
-                    .grey.shade300,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: Colors.grey.shade300,
               ),
             ),
-            enabledBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(
-                8,
-              ),
-              borderSide:
-                  BorderSide(
-                color: Colors
-                    .grey.shade300,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: Colors.grey.shade300,
               ),
             ),
-            focusedBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(
-                8,
-              ),
-              borderSide:
-                  const BorderSide(
-                color:
-                    Color(0xFF1867E5),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFF1867E5),
               ),
             ),
           ),

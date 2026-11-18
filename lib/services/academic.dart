@@ -2,7 +2,7 @@ import '../core/constants/dbsupabase.dart';
 import '../models/academicrecord.dart';
 
 class AcademicService {
-  /// Mengambil daftar riwayat akademik pengguna berdasarkan user_id
+
   Future<List<AcademicRecord>> getAcademicRecords(String userId) async {
     final response = await supabase
         .from('academic_records')
@@ -15,7 +15,6 @@ class AcademicService {
         .toList();
   }
 
-  /// Mengambil catatan akademik terbaru/terakhir milik pengguna
   Future<AcademicRecord?> getLatestAcademicRecord(String userId) async {
     final response = await supabase
         .from('academic_records')
@@ -29,7 +28,6 @@ class AcademicService {
     return AcademicRecord.fromJson(response);
   }
 
-  /// Menyimpan data (Insert baru jika ID kosong, atau Update jika ID ada)
   Future<void> saveAcademicRecord(AcademicRecord record) async {
     if (record.id != null && record.id!.isNotEmpty) {
       await supabase
@@ -41,7 +39,6 @@ class AcademicService {
     }
   }
 
-  /// Menghapus data akademik berdasarkan ID
   Future<void> deleteAcademicRecord(String id) async {
     await supabase.from('academic_records').delete().eq('id', id);
   }
